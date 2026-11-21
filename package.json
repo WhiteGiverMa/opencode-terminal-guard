@@ -1,6 +1,6 @@
 {
   "name": "opencode-terminal-guard",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Confirm Ctrl+C before exiting and Ctrl+Z before suspending the OpenCode TUI",
   "type": "module",
   "license": "MIT",

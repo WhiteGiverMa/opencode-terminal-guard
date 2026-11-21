@@ -3,6 +3,7 @@ import type { KeyEvent } from "@opentui/core"
 import { useTerminalDimensions } from "@opentui/solid"
 import { createSignal, Show } from "solid-js"
 import { createConfirmation, type GuardKey } from "./confirmation.ts"
+import { createSuspendGuard } from "./suspend.ts"
 
 function guardKey(event?: KeyEvent): GuardKey | undefined {
   if (!event?.ctrl || event.shift || event.meta || event.option || event.super || event.hyper) return
@@ -10,6 +11,10 @@ function guardKey(event?: KeyEvent): GuardKey | undefined {
     ? event.name
     : String.fromCharCode(event.baseCode ?? 0).toLowerCase()
   if (name === "c" || name === "z") return name
+}
+
+function repeated(event?: KeyEvent) {
+  return event?.repeated === true || event?.eventType === "repeat"
 }
 
 export default Plugin.define({
@@ -20,6 +25,34 @@ export default Plugin.define({
     const [pending, setPending] = createSignal<GuardKey>()
     const confirmation = createConfirmation(setPending)
     const nativeExit = context.keymap.commands().find(command => command.id === "app.exit")
+    // Reuse the native command so its configured binding still decides which
+    // key suspends; Ctrl+Z itself is guarded here instead of by a second copy
+    // of the binding.
+    const nativeSuspend = process.platform === "win32"
+      ? undefined
+      : context.keymap.commands().find(command => command.id === "terminal.suspend")
+    let suspending = false
+    const suspend = () => {
+      if (suspending) return
+      suspending = true
+      try {
+        context.keymap.dispatch("terminal.suspend")
+      } finally {
+        suspending = false
+      }
+    }
+    const guard = createSuspendGuard({
+      confirmation,
+      canUndo() {
+        const editor = context.renderer.currentFocusedEditor
+        return editor !== null && !editor.isDestroyed && editor.editBuffer.canUndo()
+      },
+      undo() {
+        const editor = context.renderer.currentFocusedEditor
+        if (editor !== null && !editor.isDestroyed) editor.undo()
+      },
+      suspend,
+    })
     let exitPress: { handled: boolean } | undefined
     const settleExit = () => {
       if (exitPress && !exitPress.handled) confirmation.cancel()
@@ -51,15 +84,21 @@ export default Plugin.define({
             if (confirmation.press("c", event?.repeated === true || event?.eventType === "repeat")) return false
           },
         }] : []),
-        ...(process.platform === "win32" ? [] : [{
-          id: "o3p.terminal.guard.suspend",
+        ...(nativeSuspend ? [{
+          ...nativeSuspend,
+          bind: false as const,
+          run: (_input: string | undefined, event?: KeyEvent) => {
+            if (suspending) return false
+            if (guardKey(event) !== "z") return false
+            guard.suspend(repeated(event))
+          },
+        }, {
+          id: "o3p.terminal.guard.undo",
           bind: "ctrl+z",
           run: (_input: string | undefined, event?: KeyEvent) => {
-            if (confirmation.press("z", event?.repeated === true || event?.eventType === "repeat")) {
-              context.keymap.dispatch("terminal.suspend")
-            }
+            if (!guard.ctrlZ(repeated(event))) return false
           },
-        }]),
+        }] : []),
       ],
     }))
 
