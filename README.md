@@ -1,5 +1,7 @@
 # OpenCode Terminal Guard
 
+[English](README.en.md) | 简体中文
+
 防止把 OpenCode 的 `ctrl+x` 误按成 `ctrl+c` 或 `ctrl+z`。
 
 需要确认的操作第一次按下只在 TUI 最底部显示提示；两秒内再按同一个组合键才执行：
